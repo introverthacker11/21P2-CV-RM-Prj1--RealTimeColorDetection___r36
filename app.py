@@ -171,10 +171,17 @@ def video_frame_callback(frame):
 # Launch WebRTC streamer with callback (no class inheritance required)
 webrtc_streamer(
     key="color-detection",
-    video_frame_callback=video_frame_callback,
+    video_processor_factory=ColorDetector,
     media_stream_constraints={"video": True, "audio": False},
-    async_processing=True,
+    rtc_configuration={
+        "iceServers": [
+            {"urls": ["stun:stun.l.google.com:19302"]},
+            {"urls": ["stun:global.stun.twilio.com:3478?transport=udp"]},
+        ]
+    }
 )
+
+
 
 
 
