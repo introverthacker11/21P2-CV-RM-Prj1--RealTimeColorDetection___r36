@@ -116,80 +116,39 @@ colors_hsv = {
     "White": ([0, 0, 200], [180, 25, 255])
 }
 
-# ---------------------------- Streamlit Color Selection ----------------------------
-selected_color = st.selectbox("Select Color to Detect", list(colors_hsv.keys()))
+# Color Selection
+selected_color = st.selectbox("🎨 Select Color to Detect", list(colors_hsv.keys()))
 
-# Start webcam
-cap = cv2.VideoCapture(0)
-frame_placeholder = st.empty()
-prev_time = time.time()
+# ---------------------------- WebRTC Color Detection ----------------------------
+class ColorDetector(VideoProcessorBase):
+    def recv(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
-# Cache dictionary to store previous masks
-mask_cache = {}
-
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        st.write("Failed to grab frame")
-        break
-
-    # Resize frame for faster processing
-    frame = cv2.resize(frame, (640, 480))
-    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    hsv = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2HSV)
-
-    # Check cache to see if mask for this color already exists
-    if selected_color in mask_cache:
-        mask = mask_cache[selected_color]
-    else:
-        # Compute mask for selected color
         color_values = colors_hsv[selected_color]
+
         if selected_color == "Red":
             lower1, upper1, lower2, upper2 = map(np.array, color_values)
-            mask1 = cv2.inRange(hsv, lower1, upper1)
-            mask2 = cv2.inRange(hsv, lower2, upper2)
-            mask = mask1 + mask2
+            mask = cv2.inRange(hsv, lower1, upper1) | cv2.inRange(hsv, lower2, upper2)
         else:
             lower, upper = map(np.array, color_values)
             mask = cv2.inRange(hsv, lower, upper)
 
-        # Morphology to remove noise
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        # Cache the mask for future frames
-        mask_cache[selected_color] = mask
+        for cnt in contours:
+            if cv2.contourArea(cnt) > 500:
+                x, y, w, h = cv2.boundingRect(cnt)
+                cv2.rectangle(img, (x, y), (x+w, y+h), (0,255,0), 2)
+                cv2.putText(img, selected_color, (x, y - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
 
-    # Find contours and draw bounding boxes
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if area > 500:
-            x, y, w, h = cv2.boundingRect(cnt)
-            cv2.rectangle(frame_rgb, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            cv2.putText(frame_rgb, selected_color, (x, y - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        return frame.from_ndarray(img, format="bgr24")
 
-    # Convert mask to RGB for display
-    mask_rgb = cv2.cvtColor(mask, cv2.COLOR_GRAY2RGB)
+webrtc_streamer(
+    key="color-detection",
+    video_processor_factory=ColorDetector
+)
 
-    # Combine frame + mask side by side
-    combined = np.hstack((frame_rgb, mask_rgb))
-
-    # Calculate FPS
-    curr_time = time.time()
-    fps = 1 / (curr_time - prev_time)
-    prev_time = curr_time
-    cv2.putText(combined, f"FPS: {int(fps)}", (10, 20),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-
-    # Display in Streamlit
-    frame_placeholder.image(combined, channels="RGB")
-
-    # Small delay to reduce CPU usage
-    time.sleep(0.01)
-
-cap.release()
 
 
