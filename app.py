@@ -116,38 +116,59 @@ colors_hsv = {
     "White": ([0, 0, 200], [180, 25, 255])
 }
 
-# Color Selection
 selected_color = st.selectbox("🎨 Select Color to Detect", list(colors_hsv.keys()))
 
-# ---------------------------- WebRTC Color Detection ----------------------------
-class ColorDetector(VideoProcessorBase):
-    def recv(self, frame):
-        img = frame.to_ndarray(format="bgr24")
-        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+# optional: cache for masks (keeps same mask per color for morphological params, not per frame)
+mask_cache = {}
 
-        color_values = colors_hsv[selected_color]
+# This function will be called for each incoming video frame (av.VideoFrame)
+def video_frame_callback(frame):
+    # Convert av.VideoFrame to numpy array (BGR)
+    img = frame.to_ndarray(format="bgr24")
 
-        if selected_color == "Red":
-            lower1, upper1, lower2, upper2 = map(np.array, color_values)
-            mask = cv2.inRange(hsv, lower1, upper1) | cv2.inRange(hsv, lower2, upper2)
-        else:
-            lower, upper = map(np.array, color_values)
-            mask = cv2.inRange(hsv, lower, upper)
+    # optional: resize for faster processing
+    img = cv2.resize(img, (640, 480))
 
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
-        for cnt in contours:
-            if cv2.contourArea(cnt) > 500:
-                x, y, w, h = cv2.boundingRect(cnt)
-                cv2.rectangle(img, (x, y), (x+w, y+h), (0,255,0), 2)
-                cv2.putText(img, selected_color, (x, y - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
+    # Build mask (handle Red's two ranges)
+    color_values = colors_hsv[selected_color]
+    if selected_color == "Red":
+        lower1, upper1, lower2, upper2 = map(np.array, color_values)
+        mask = cv2.inRange(hsv, lower1, upper1) | cv2.inRange(hsv, lower2, upper2)
+    else:
+        lower, upper = map(np.array, color_values)
+        mask = cv2.inRange(hsv, lower, upper)
 
-        return frame.from_ndarray(img, format="bgr24")
+    # Morphology to remove noise
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
+    # Contours + bounding boxes
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for cnt in contours:
+        if cv2.contourArea(cnt) > 500:
+            x, y, w, h = cv2.boundingRect(cnt)
+            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            cv2.putText(img, selected_color, (x, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+    # Optional: side-by-side original + mask visualization
+    mask_rgb = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+    combined = np.hstack((img, mask_rgb))
+
+    # Convert numpy image back to av.VideoFrame and return
+    import av  # import inside function to avoid failing app start if av import is problematic
+    return av.VideoFrame.from_ndarray(combined, format="bgr24")
+
+
+# Launch WebRTC streamer with callback (no class inheritance required)
 webrtc_streamer(
     key="color-detection",
-    video_processor_factory=ColorDetector
+    video_frame_callback=video_frame_callback,
+    media_stream_constraints={"video": True, "audio": False},
+    async_processing=True,
 )
 
 
