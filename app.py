@@ -1,6 +1,6 @@
 
 
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
+from streamlit_webrtc import webrtc_streamer
 import av
 import cv2
 import numpy as np
@@ -106,7 +106,6 @@ with st.sidebar.expander("🛠️ Tech Stack Used"):
     - **Streamlit Cloud** – Deployment & sharing
     """)
 
-
 # ---------------------------- HSV Color Ranges ----------------------------
 colors_hsv = {
     "Yellow": ([20, 100, 100], [30, 255, 255]),
@@ -123,20 +122,20 @@ colors_hsv = {
 
 selected_color = st.selectbox("🎨 Select Color to Detect", list(colors_hsv.keys()))
 
-# optional: cache for masks (keeps same mask per color for morphological params, not per frame)
+# optional: cache for masks
 mask_cache = {}
 
-# This function will be called for each incoming video frame (av.VideoFrame)
+# For FPS calculation
+prev_time = time.time()
+
+# ---------------------------- Video Frame Callback ----------------------------
 def video_frame_callback(frame):
-    # Convert av.VideoFrame to numpy array (BGR)
+    global prev_time
     img = frame.to_ndarray(format="bgr24")
-
-    # optional: resize for faster processing
     img = cv2.resize(img, (640, 480))
-
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
-    # Build mask (handle Red's two ranges)
+    # Mask for selected color
     color_values = colors_hsv[selected_color]
     if selected_color == "Red":
         lower1, upper1, lower2, upper2 = map(np.array, color_values)
@@ -145,7 +144,7 @@ def video_frame_callback(frame):
         lower, upper = map(np.array, color_values)
         mask = cv2.inRange(hsv, lower, upper)
 
-    # Morphology to remove noise
+    # Morphology
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
@@ -159,27 +158,33 @@ def video_frame_callback(frame):
             cv2.putText(img, selected_color, (x, y - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-    # Optional: side-by-side original + mask visualization
+    # Side-by-side original + mask
     mask_rgb = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
     combined = np.hstack((img, mask_rgb))
 
-    # Convert numpy image back to av.VideoFrame and return
-    import av  # import inside function to avoid failing app start if av import is problematic
+    # FPS display
+    curr_time = time.time()
+    fps = 1 / (curr_time - prev_time)
+    prev_time = curr_time
+    cv2.putText(combined, f"FPS: {int(fps)}", (10, 25),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+
     return av.VideoFrame.from_ndarray(combined, format="bgr24")
 
-
-# Launch WebRTC streamer with callback (no class inheritance required)
+# ---------------------------- Launch WebRTC Streamer ----------------------------
 webrtc_streamer(
     key="color-detection",
-    video_processor_factory=ColorDetector,
+    video_frame_callback=video_frame_callback,
     media_stream_constraints={"video": True, "audio": False},
+    async_processing=True,
     rtc_configuration={
         "iceServers": [
             {"urls": ["stun:stun.l.google.com:19302"]},
-            {"urls": ["stun:global.stun.twilio.com:3478?transport=udp"]},
+            {"urls": ["stun:global.stun.twilio.com:3478?transport=udp"]}
         ]
     }
 )
+
 
 
 
