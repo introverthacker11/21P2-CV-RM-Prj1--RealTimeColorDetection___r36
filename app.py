@@ -1,16 +1,12 @@
-import pkgutil
-import streamlit as st
-modules = ["streamlit_webrtc", "av"]
-for m in modules:
-    if pkgutil.find_loader(m):
-        st.success(f"Module found: {m}")
-    else:
-        st.error(f"Module NOT FOUND: {m}")
 
+
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
+import av
 import cv2
 import numpy as np
 import streamlit as st
 import time
+
 
 st.title("⚡🤖 Real-Time Color Detection Web App")
 st.markdown("**🎨 Detect and track selected colors in real-time using your webcam**  \n👨‍💻 Developed by **Rayyan Ahmed, DUET, 22F-BSAI-11**")
@@ -179,6 +175,7 @@ webrtc_streamer(
     media_stream_constraints={"video": True, "audio": False},
     async_processing=True,
 )
+
 
 
 
