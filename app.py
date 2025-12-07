@@ -1,17 +1,10 @@
-
-
-from streamlit_webrtc import webrtc_streamer
-import av
 import cv2
 import numpy as np
 import streamlit as st
 import time
 
-
 st.title("⚡🤖 Real-Time Color Detection Web App")
-st.markdown("**🎨 Detect and track selected colors in real-time using your webcam**  \n👨‍💻 Developed by **Rayyan Ahmed, DUET, 22F-BSAI-11**")
-st.markdown(" **Note: On Streamlit Cloud, you cannot capture webcam video. The app will always fail to grab frames. To demo on the cloud, you would need to upload a video or image instead of using a webcam or use locally.**")
-
+st.markdown("**🎨 Detect and track selected colors in real-time using your webcam**  \n👨‍💻 Developed by **Rayyan Ahmed**")
 
 
 # ---------------------------- Set background ----------------------------
@@ -106,6 +99,7 @@ with st.sidebar.expander("🛠️ Tech Stack Used"):
     - **Streamlit Cloud** – Deployment & sharing
     """)
 
+
 # ---------------------------- HSV Color Ranges ----------------------------
 colors_hsv = {
     "Yellow": ([20, 100, 100], [30, 255, 255]),
@@ -120,81 +114,61 @@ colors_hsv = {
     "White": ([0, 0, 200], [180, 25, 255])
 }
 
-selected_color = st.selectbox("🎨 Select Color to Detect", list(colors_hsv.keys()))
+# ---------------------------- Streamlit Color Selection ----------------------------
+selected_color = st.selectbox("Select Color to Detect", list(colors_hsv.keys()))
 
-# optional: cache for masks
-mask_cache = {}
-
-# For FPS calculation
+# Start webcam
+cap = cv2.VideoCapture(0)
+frame_placeholder = st.empty()
 prev_time = time.time()
 
-# ---------------------------- Video Frame Callback ----------------------------
-def video_frame_callback(frame):
-    global prev_time
-    img = frame.to_ndarray(format="bgr24")
-    img = cv2.resize(img, (640, 480))
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        st.write("Failed to grab frame")
+        break
 
-    # Mask for selected color
+    frame = cv2.resize(frame, (640, 480))
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    hsv = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2HSV)
+
+    # ------------------ Compute mask for current frame ------------------
     color_values = colors_hsv[selected_color]
     if selected_color == "Red":
         lower1, upper1, lower2, upper2 = map(np.array, color_values)
-        mask = cv2.inRange(hsv, lower1, upper1) | cv2.inRange(hsv, lower2, upper2)
+        mask1 = cv2.inRange(hsv, lower1, upper1)
+        mask2 = cv2.inRange(hsv, lower2, upper2)
+        mask = mask1 + mask2
     else:
         lower, upper = map(np.array, color_values)
         mask = cv2.inRange(hsv, lower, upper)
 
-    # Morphology
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
-    # Contours + bounding boxes
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     for cnt in contours:
-        if cv2.contourArea(cnt) > 500:
+        area = cv2.contourArea(cnt)
+        if area > 500:
             x, y, w, h = cv2.boundingRect(cnt)
-            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            cv2.putText(img, selected_color, (x, y - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            cv2.rectangle(frame_rgb, (x, y), (x + w, y + h), (0, 255, 0), 3)
+            cv2.putText(frame_rgb, selected_color, (x, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-    # Side-by-side original + mask
-    mask_rgb = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
-    combined = np.hstack((img, mask_rgb))
+    mask_rgb = cv2.cvtColor(mask, cv2.COLOR_GRAY2RGB)
 
-    # FPS display
+    combined = np.hstack((frame_rgb, mask_rgb))
+
     curr_time = time.time()
     fps = 1 / (curr_time - prev_time)
     prev_time = curr_time
-    cv2.putText(combined, f"FPS: {int(fps)}", (10, 25),
+    cv2.putText(combined, f"FPS: {int(fps)}", (10, 20),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
 
-    return av.VideoFrame.from_ndarray(combined, format="bgr24")
+    # Display in Streamlit
+    frame_placeholder.image(combined, channels="RGB")
 
-# ---------------------------- Launch WebRTC Streamer ----------------------------
-webrtc_streamer(
-    key="color-detection",
-    video_frame_callback=video_frame_callback,
-    media_stream_constraints={"video": True, "audio": False},
-    async_processing=True,
-    rtc_configuration={
-        "iceServers": [
-            {"urls": ["stun:stun.l.google.com:19302"]},
-            {"urls": ["stun:stun1.l.google.com:19302"]},
-            {"urls": ["stun:stun2.l.google.com:19302"]},
-            {"urls": ["turn:global.relay.metered.ca:80"], "username": "streamlit", "credential": "streamlit"}
-        ]
-    }
-)
+    time.sleep(0.01)
 
-
-
-
-
-
-
-
-
-
-
-
+cap.release()
