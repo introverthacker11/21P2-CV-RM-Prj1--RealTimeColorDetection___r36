@@ -1,3 +1,12 @@
+import pkgutil
+import streamlit as st
+modules = ["streamlit_webrtc", "av"]
+for m in modules:
+    if pkgutil.find_loader(m):
+        st.success(f"Module found: {m}")
+    else:
+        st.error(f"Module NOT FOUND: {m}")
+
 import cv2
 import numpy as np
 import streamlit as st
@@ -170,6 +179,7 @@ webrtc_streamer(
     media_stream_constraints={"video": True, "audio": False},
     async_processing=True,
 )
+
 
 
 
