@@ -93,6 +93,11 @@ webrtc_streamer(
     media_stream_constraints={"video": True, "audio": False},
     async_transform=True,
     rtc_configuration={
-        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+        "iceServers": [
+            {"urls": ["stun:stun.l.google.com:19302"]},  # Google's public STUN
+            {"urls": ["stun:stun1.l.google.com:19302"]},
+            {"urls": ["stun:stun2.l.google.com:19302"]}
+        ]
     }
 )
+
